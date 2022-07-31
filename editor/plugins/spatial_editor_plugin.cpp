@@ -1270,6 +1270,8 @@ void SpatialEditorViewport::_sinput(const Ref<InputEvent> &p_event) {
 			} break;
 			case BUTTON_LEFT: {
 				if (b->is_pressed()) {
+					if(crocotile_spacebar) return;
+					
 					NavigationScheme nav_scheme = (NavigationScheme)EditorSettings::get_singleton()->get("editors/3d/navigation/navigation_scheme").operator int();
 					if ((nav_scheme == NAVIGATION_MAYA || nav_scheme == NAVIGATION_MODO) && b->get_alt()) {
 						break;
@@ -1444,6 +1446,7 @@ void SpatialEditorViewport::_sinput(const Ref<InputEvent> &p_event) {
 	}
 
 	Ref<InputEventMouseMotion> m = p_event;
+	Ref<InputEventKey> k = p_event;
 
 	if (m.is_valid()) {
 		_edit.mouse_pos = m->get_position();
@@ -1484,6 +1487,29 @@ void SpatialEditorViewport::_sinput(const Ref<InputEvent> &p_event) {
 			String n = _edit.gizmo->get_handle_name(_edit.gizmo_handle);
 			set_message(n + ": " + String(v));
 
+		} else if (crocotile_spacebar && EditorSettings::get_singleton()->get("editors/3d/navigation/emulate_3_button_mouse")) {
+			// Handle trackpad (no external mouse) use case
+			const int mod = _get_key_modifier(m);
+
+			if (crocotile_spacebar) {
+				if (m->get_button_mask() & BUTTON_MASK_LEFT){
+					nav_mode = NAVIGATION_ORBIT;
+				}else if (m->get_button_mask() & BUTTON_MASK_MIDDLE){
+					nav_mode = NAVIGATION_ZOOM;
+				}else if (m->get_button_mask() & BUTTON_MASK_RIGHT){
+					nav_mode = NAVIGATION_PAN;
+				}
+			}
+			/*if (mod) {
+				if (mod == _get_key_modifier_setting("editors/3d/navigation/pan_modifier")) {
+					nav_mode = NAVIGATION_PAN;
+				} else if (mod == _get_key_modifier_setting("editors/3d/navigation/zoom_modifier")) {
+					nav_mode = NAVIGATION_ZOOM;
+				} else if (mod == Key::ALT || mod == _get_key_modifier_setting("editors/3d/navigation/orbit_modifier")) {
+					// Always allow Alt as a modifier to better support graphic tablets.
+					nav_mode = NAVIGATION_ORBIT;
+				}
+			}*/
 		} else if (m->get_button_mask() & BUTTON_MASK_LEFT) {
 			if (nav_scheme == NAVIGATION_MAYA && m->get_alt()) {
 				nav_mode = NAVIGATION_ORBIT;
@@ -1905,20 +1931,6 @@ void SpatialEditorViewport::_sinput(const Ref<InputEvent> &p_event) {
 				}
 			}
 
-		} else if (EditorSettings::get_singleton()->get("editors/3d/navigation/emulate_3_button_mouse")) {
-			// Handle trackpad (no external mouse) use case
-			const int mod = _get_key_modifier(m);
-
-			if (mod) {
-				if (mod == _get_key_modifier_setting("editors/3d/navigation/pan_modifier")) {
-					nav_mode = NAVIGATION_PAN;
-				} else if (mod == _get_key_modifier_setting("editors/3d/navigation/zoom_modifier")) {
-					nav_mode = NAVIGATION_ZOOM;
-				} else if (mod == KEY_ALT || mod == _get_key_modifier_setting("editors/3d/navigation/orbit_modifier")) {
-					// Always allow Alt as a modifier to better support graphic tablets.
-					nav_mode = NAVIGATION_ORBIT;
-				}
-			}
 		}
 
 		switch (nav_mode) {
@@ -2005,9 +2017,15 @@ void SpatialEditorViewport::_sinput(const Ref<InputEvent> &p_event) {
 		}
 	}
 
-	Ref<InputEventKey> k = p_event;
+	//Ref<InputEventKey> k = p_event;
 
 	if (k.is_valid()) {
+		
+		//handle crocotile spacebar states
+		if (k.is_valid() && k->get_scancode() == KEY_SPACE) {
+			set_crocotile_spacebar(k->is_pressed());
+		}
+		
 		if (!k->is_pressed()) {
 			return;
 		}
@@ -2251,7 +2269,47 @@ void SpatialEditorViewport::_nav_look(Ref<InputEventWithModifiers> p_event, cons
 	_update_name();
 }
 
+void SpatialEditorViewport::set_crocotile_spacebar(bool active_now) {
+	if (!crocotile_spacebar && active_now) {
+		// Sync camera cursor to cursor to "cut" interpolation jumps due to changing referential
+		cursor = camera_cursor;
+
+		// Make sure eye_pos is synced, because freelook referential is eye pos rather than orbit pos
+		Vector3 forward = to_camera_transform(cursor).basis.xform(Vector3(0, 0, -1));
+		cursor.eye_pos = cursor.pos - cursor.distance * forward;
+		// Also sync the camera cursor, otherwise switching to freelook will be trippy if inertia is active
+		camera_cursor.eye_pos = cursor.eye_pos;
+
+		if (EditorSettings::get_singleton()->get("editors/3d/freelook/freelook_speed_zoom_link")) {
+			// Re-adjust freelook speed from the current zoom level
+			real_t base_speed = EditorSettings::get_singleton()->get("editors/3d/freelook/freelook_base_speed");
+			freelook_speed = base_speed * cursor.distance;
+		}
+
+		previous_mouse_position = get_local_mouse_position();
+		
+		// Hide mouse like in an FPS (warping doesn't work)
+		Input::get_singleton()->set_mouse_mode(Input::MOUSE_MODE_CAPTURED);
+
+	} else if (crocotile_spacebar && !active_now) {
+		// Sync camera cursor to cursor to "cut" interpolation jumps due to changing referential
+		cursor = camera_cursor;
+		
+		// Restore mouse
+		Input::get_singleton()->set_mouse_mode(Input::MOUSE_MODE_VISIBLE);
+		
+		// Restore the previous mouse position when leaving freelook mode.
+		// This is done because leaving `Input.MOUSE_MODE_CAPTURED` will center the cursor
+		// due to OS limitations.
+		warp_mouse(previous_mouse_position);
+	}
+
+	crocotile_spacebar = active_now;
+}
+
 void SpatialEditorViewport::set_freelook_active(bool active_now) {
+	if(crocotile_spacebar) return;
+	
 	if (!freelook_active && active_now) {
 		// Sync camera cursor to cursor to "cut" interpolation jumps due to changing referential
 		cursor = camera_cursor;
@@ -4118,6 +4176,7 @@ SpatialEditorViewport::SpatialEditorViewport(SpatialEditor *p_spatial_editor, Ed
 
 	accept = nullptr;
 
+	crocotile_spacebar = false;
 	freelook_active = false;
 	freelook_speed = EditorSettings::get_singleton()->get("editors/3d/freelook/freelook_base_speed");
 
