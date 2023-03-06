@@ -1414,7 +1414,10 @@ Transform3D Node3DEditorViewport::_compute_transform(TransformMode p_mode, const
 
 				// Recalculate orthogonalized scale without moving origin.
 				if (p_orthogonal) {
-					s.basis = p_original.basis.scaled_orthogonal(p_motion + Vector3(1, 1, 1));
+					s.basis = p_original_local.basis.scaled_orthogonal(p_motion + Vector3(1, 1, 1));
+					// The scaled_orthogonal() does not require orthogonal Basis,
+					// but it may make a bit skew by precision problems.
+					s.basis.orthogonalize();
 				}
 			}
 
@@ -1543,7 +1546,6 @@ void Node3DEditorViewport::_list_select(Ref<InputEventMouseButton> b) {
 			selection_menu->set_item_tooltip(i, String(spat->get_name()) + "\nType: " + spat->get_class() + "\nPath: " + node_path);
 		}
 
-		selection_results_menu = selection_results;
 		selection_menu->set_position(get_screen_position() + b->get_position());
 		selection_menu->reset_size();
 		selection_menu->popup();
@@ -1667,7 +1669,6 @@ void Node3DEditorViewport::_sinput(const Ref<InputEvent> &p_event) {
 						} break;
 						case TRANSFORM_Z_AXIS: {
 							_edit.plane = TRANSFORM_VIEW;
-							// TRANSLATORS: This refers to the transform of the view plane.
 							set_message(TTR("View Plane Transform."), 2);
 
 						} break;
@@ -1680,6 +1681,7 @@ void Node3DEditorViewport::_sinput(const Ref<InputEvent> &p_event) {
 			} break;
 			case MouseButton::LEFT: {
 				if (b->is_pressed()) {
+					if(crocotile_spacebar) return;			   
 					clicked_wants_append = b->is_shift_pressed();
 
 					if (_edit.mode != TRANSFORM_NONE && _edit.instant) {
@@ -1872,6 +1874,7 @@ void Node3DEditorViewport::_sinput(const Ref<InputEvent> &p_event) {
 	}
 
 	Ref<InputEventMouseMotion> m = p_event;
+	Ref<InputEventKey> k = p_event;							
 
 	if (m.is_valid()) {
 		_edit.mouse_pos = m->get_position();
@@ -1923,6 +1926,29 @@ void Node3DEditorViewport::_sinput(const Ref<InputEvent> &p_event) {
 			String n = _edit.gizmo->get_handle_name(_edit.gizmo_handle, _edit.gizmo_handle_secondary);
 			set_message(n + ": " + String(v));
 
+		} else if (crocotile_spacebar && EDITOR_GET("editors/3d/navigation/emulate_3_button_mouse")) {
+			// Handle trackpad (no external mouse) use case
+			const Key mod = _get_key_modifier(m);
+
+			if (crocotile_spacebar) {
+				if (m->get_button_mask().has_flag(MouseButtonMask::LEFT) ){
+					nav_mode = NAVIGATION_ORBIT;
+				}else if (m->get_button_mask().has_flag(MouseButtonMask::MIDDLE) ){
+					nav_mode = NAVIGATION_ZOOM;
+				}else if (m->get_button_mask().has_flag(MouseButtonMask::RIGHT) ){
+					nav_mode = NAVIGATION_PAN;
+				}
+			}
+			/*if (mod != Key::NONE) {
+				if (mod == _get_key_modifier_setting("editors/3d/navigation/pan_modifier")) {
+					nav_mode = NAVIGATION_PAN;
+				} else if (mod == _get_key_modifier_setting("editors/3d/navigation/zoom_modifier")) {
+					nav_mode = NAVIGATION_ZOOM;
+				} else if (mod == Key::ALT || mod == _get_key_modifier_setting("editors/3d/navigation/orbit_modifier")) {
+					// Always allow Alt as a modifier to better support graphic tablets.
+					nav_mode = NAVIGATION_ORBIT;
+				}
+			}*/
 		} else if (m->get_button_mask().has_flag(MouseButtonMask::LEFT) || _edit.instant) {
 			if (nav_scheme == NAVIGATION_MAYA && m->is_alt_pressed()) {
 				nav_mode = NAVIGATION_ORBIT;
@@ -1985,20 +2011,6 @@ void Node3DEditorViewport::_sinput(const Ref<InputEvent> &p_event) {
 			} else if (nav_scheme == NAVIGATION_MAYA) {
 				if (mod == _get_key_modifier_setting("editors/3d/navigation/pan_modifier")) {
 					nav_mode = NAVIGATION_PAN;
-				}
-			}
-		} else if (EDITOR_GET("editors/3d/navigation/emulate_3_button_mouse")) {
-			// Handle trackpad (no external mouse) use case
-			const Key mod = _get_key_modifier(m);
-
-			if (mod != Key::NONE) {
-				if (mod == _get_key_modifier_setting("editors/3d/navigation/pan_modifier")) {
-					nav_mode = NAVIGATION_PAN;
-				} else if (mod == _get_key_modifier_setting("editors/3d/navigation/zoom_modifier")) {
-					nav_mode = NAVIGATION_ZOOM;
-				} else if (mod == Key::ALT || mod == _get_key_modifier_setting("editors/3d/navigation/orbit_modifier")) {
-					// Always allow Alt as a modifier to better support graphic tablets.
-					nav_mode = NAVIGATION_ORBIT;
 				}
 			}
 		}
@@ -2087,9 +2099,13 @@ void Node3DEditorViewport::_sinput(const Ref<InputEvent> &p_event) {
 		}
 	}
 
-	Ref<InputEventKey> k = p_event;
+	
 
 	if (k.is_valid()) {
+		//handle crocotile spacebar states
+		if (k.is_valid() && k->get_keycode() == Key::SPACE) {
+			set_crocotile_spacebar(k->is_pressed());
+		}							
 		if (!k->is_pressed()) {
 			return;
 		}
@@ -2404,7 +2420,47 @@ void Node3DEditorViewport::_nav_look(Ref<InputEventWithModifiers> p_event, const
 	_update_name();
 }
 
+void Node3DEditorViewport::set_crocotile_spacebar(bool active_now) {
+							   
+ 
+	if (!crocotile_spacebar && active_now) {
+		// Sync camera cursor to cursor to "cut" interpolation jumps due to changing referential
+		cursor = camera_cursor;
+
+		// Make sure eye_pos is synced, because freelook referential is eye pos rather than orbit pos
+		Vector3 forward = to_camera_transform(cursor).basis.xform(Vector3(0, 0, -1));
+		cursor.eye_pos = cursor.pos - cursor.distance * forward;
+		// Also sync the camera cursor, otherwise switching to freelook will be trippy if inertia is active
+		camera_cursor.eye_pos = cursor.eye_pos;
+
+		if (EDITOR_GET("editors/3d/freelook/freelook_speed_zoom_link")) {
+			// Re-adjust freelook speed from the current zoom level
+			real_t base_speed = EDITOR_GET("editors/3d/freelook/freelook_base_speed");
+			freelook_speed = base_speed * cursor.distance;
+		}
+
+		previous_mouse_position = get_local_mouse_position();
+
+		// Hide mouse like in an FPS (warping doesn't work)
+		Input::get_singleton()->set_mouse_mode(Input::MOUSE_MODE_CAPTURED);
+
+	} else if (crocotile_spacebar && !active_now) {
+		// Sync camera cursor to cursor to "cut" interpolation jumps due to changing referential
+		cursor = camera_cursor;
+
+		// Restore mouse
+		Input::get_singleton()->set_mouse_mode(Input::MOUSE_MODE_VISIBLE);
+
+		// Restore the previous mouse position when leaving freelook mode.
+		// This is done because leaving `Input.MOUSE_MODE_CAPTURED` will center the cursor
+		// due to OS limitations.
+		warp_mouse(previous_mouse_position);
+	}
+
+	crocotile_spacebar = active_now;
+}
 void Node3DEditorViewport::set_freelook_active(bool active_now) {
+	if(crocotile_spacebar) return;						   
 	if (!freelook_active && active_now) {
 		// Sync camera cursor to cursor to "cut" interpolation jumps due to changing referential
 		cursor = camera_cursor;
@@ -3394,6 +3450,7 @@ void Node3DEditorViewport::_menu_option(int p_option) {
 				VIEW_DISPLAY_SHADELESS,
 				VIEW_DISPLAY_LIGHTING,
 				VIEW_DISPLAY_NORMAL_BUFFER,
+				VIEW_DISPLAY_WIREFRAME,
 				VIEW_DISPLAY_DEBUG_SHADOW_ATLAS,
 				VIEW_DISPLAY_DEBUG_DIRECTIONAL_SHADOW_ATLAS,
 				VIEW_DISPLAY_DEBUG_VOXEL_GI_ALBEDO,
@@ -3423,6 +3480,7 @@ void Node3DEditorViewport::_menu_option(int p_option) {
 				Viewport::DEBUG_DRAW_UNSHADED,
 				Viewport::DEBUG_DRAW_LIGHTING,
 				Viewport::DEBUG_DRAW_NORMAL_BUFFER,
+				Viewport::DEBUG_DRAW_WIREFRAME,
 				Viewport::DEBUG_DRAW_SHADOW_ATLAS,
 				Viewport::DEBUG_DRAW_DIRECTIONAL_SHADOW_ATLAS,
 				Viewport::DEBUG_DRAW_VOXEL_GI_ALBEDO,
@@ -3445,7 +3503,9 @@ void Node3DEditorViewport::_menu_option(int p_option) {
 				Viewport::DEBUG_DRAW_MOTION_VECTORS,
 			};
 
-			for (int idx = 0; display_options[idx] != VIEW_MAX; idx++) {
+			int idx = 0;
+
+			while (display_options[idx] != VIEW_MAX) {
 				int id = display_options[idx];
 				int item_idx = view_menu->get_popup()->get_item_index(id);
 				if (item_idx != -1) {
@@ -3459,6 +3519,7 @@ void Node3DEditorViewport::_menu_option(int p_option) {
 				if (id == p_option) {
 					viewport->set_debug_draw(debug_draw_modes[idx]);
 				}
+				idx++;
 			}
 		} break;
 	}
@@ -3610,17 +3671,15 @@ void Node3DEditorViewport::_toggle_cinema_preview(bool p_activate) {
 }
 
 void Node3DEditorViewport::_selection_result_pressed(int p_result) {
-	if (selection_results_menu.size() <= p_result) {
+	if (selection_results.size() <= p_result) {
 		return;
 	}
 
-	clicked = selection_results_menu[p_result].item->get_instance_id();
+	clicked = selection_results[p_result].item->get_instance_id();
 
 	if (clicked.is_valid()) {
 		_select_clicked(spatial_editor->get_tool_mode() == Node3DEditor::TOOL_MODE_SELECT);
 	}
-
-	selection_results_menu.clear();
 }
 
 void Node3DEditorViewport::_selection_menu_hide() {
@@ -4607,9 +4666,7 @@ void Node3DEditorViewport::update_transform(Point2 p_mousepos, bool p_shift) {
 			// TRANSLATORS: Refers to changing the scale of a node in the 3D editor.
 			set_message(TTR("Scaling:") + " (" + String::num(motion_snapped.x, snap_step_decimals) + ", " +
 					String::num(motion_snapped.y, snap_step_decimals) + ", " + String::num(motion_snapped.z, snap_step_decimals) + ")");
-			if (local_coords) {
-				motion = _edit.original.basis.inverse().xform(motion);
-			}
+			motion = _edit.original.basis.inverse().xform(motion);
 
 			List<Node *> &selection = editor_selection->get_selected_node_list();
 			for (Node *E : selection) {
@@ -4630,14 +4687,14 @@ void Node3DEditorViewport::update_transform(Point2 p_mousepos, bool p_shift) {
 				if (se->gizmo.is_valid()) {
 					for (KeyValue<int, Transform3D> &GE : se->subgizmos) {
 						Transform3D xform = GE.value;
-						Transform3D new_xform = _compute_transform(TRANSFORM_SCALE, se->original * xform, xform, motion, snap, local_coords, _edit.plane != TRANSFORM_VIEW); // Force orthogonal with subgizmo.
+						Transform3D new_xform = _compute_transform(TRANSFORM_SCALE, se->original * xform, xform, motion, snap, local_coords, true); // Force orthogonal with subgizmo.
 						if (!local_coords) {
 							new_xform = se->original.affine_inverse() * new_xform;
 						}
 						se->gizmo->set_subgizmo_transform(GE.key, new_xform);
 					}
 				} else {
-					Transform3D new_xform = _compute_transform(TRANSFORM_SCALE, se->original, se->original_local, motion, snap, local_coords, sp->get_rotation_edit_mode() != Node3D::ROTATION_EDIT_MODE_BASIS && _edit.plane != TRANSFORM_VIEW);
+					Transform3D new_xform = _compute_transform(TRANSFORM_SCALE, se->original, se->original_local, motion, snap, local_coords, sp->get_rotation_edit_mode() != Node3D::ROTATION_EDIT_MODE_BASIS);
 					_transform_gizmo_apply(se->sp, new_xform, local_coords);
 				}
 			}
@@ -4710,9 +4767,7 @@ void Node3DEditorViewport::update_transform(Point2 p_mousepos, bool p_shift) {
 			// TRANSLATORS: Refers to changing the position of a node in the 3D editor.
 			set_message(TTR("Translating:") + " (" + String::num(motion_snapped.x, snap_step_decimals) + ", " +
 					String::num(motion_snapped.y, snap_step_decimals) + ", " + String::num(motion_snapped.z, snap_step_decimals) + ")");
-			if (local_coords) {
-				motion = spatial_editor->get_gizmo_transform().basis.inverse().xform(motion);
-			}
+			motion = spatial_editor->get_gizmo_transform().basis.inverse().xform(motion);
 
 			List<Node *> &selection = editor_selection->get_selected_node_list();
 			for (Node *E : selection) {
@@ -4865,8 +4920,8 @@ void Node3DEditorViewport::finish_transform() {
 }
 
 // Register a shortcut and also add it as an input action with the same events.
-void Node3DEditorViewport::register_shortcut_action(const String &p_path, const String &p_name, Key p_keycode, bool p_physical) {
-	Ref<Shortcut> sc = ED_SHORTCUT(p_path, p_name, p_keycode, p_physical);
+void Node3DEditorViewport::register_shortcut_action(const String &p_path, const String &p_name, Key p_keycode) {
+	Ref<Shortcut> sc = ED_SHORTCUT(p_path, p_name, p_keycode);
 	shortcut_changed_callback(sc, p_path);
 	// Connect to the change event on the shortcut so the input binding can be updated.
 	sc->connect("changed", callable_mp(this, &Node3DEditorViewport::shortcut_changed_callback).bind(sc, p_path));
@@ -4960,7 +5015,6 @@ Node3DEditorViewport::Node3DEditorViewport(Node3DEditor *p_spatial_editor, int p
 	view_menu->get_popup()->add_separator();
 	view_menu->get_popup()->add_check_shortcut(ED_SHORTCUT("spatial_editor/view_lock_rotation", TTR("Lock View Rotation")), VIEW_LOCK_ROTATION);
 	view_menu->get_popup()->add_separator();
-	// TRANSLATORS: "Normal" as in "normal life", not "normal vector".
 	view_menu->get_popup()->add_radio_check_shortcut(ED_SHORTCUT("spatial_editor/view_display_normal", TTR("Display Normal")), VIEW_DISPLAY_NORMAL);
 	view_menu->get_popup()->add_radio_check_shortcut(ED_SHORTCUT("spatial_editor/view_display_wireframe", TTR("Display Wireframe")), VIEW_DISPLAY_WIREFRAME);
 	view_menu->get_popup()->add_radio_check_shortcut(ED_SHORTCUT("spatial_editor/view_display_overdraw", TTR("Display Overdraw")), VIEW_DISPLAY_OVERDRAW);
@@ -5047,12 +5101,12 @@ Node3DEditorViewport::Node3DEditorViewport(Node3DEditor *p_spatial_editor, int p
 		view_menu->get_popup()->set_item_tooltip(shadeless_idx, unsupported_tooltip);
 	}
 
-	register_shortcut_action("spatial_editor/freelook_left", TTR("Freelook Left"), Key::A, true);
-	register_shortcut_action("spatial_editor/freelook_right", TTR("Freelook Right"), Key::D, true);
-	register_shortcut_action("spatial_editor/freelook_forward", TTR("Freelook Forward"), Key::W, true);
-	register_shortcut_action("spatial_editor/freelook_backwards", TTR("Freelook Backwards"), Key::S, true);
-	register_shortcut_action("spatial_editor/freelook_up", TTR("Freelook Up"), Key::E, true);
-	register_shortcut_action("spatial_editor/freelook_down", TTR("Freelook Down"), Key::Q, true);
+	register_shortcut_action("spatial_editor/freelook_left", TTR("Freelook Left"), Key::A);
+	register_shortcut_action("spatial_editor/freelook_right", TTR("Freelook Right"), Key::D);
+	register_shortcut_action("spatial_editor/freelook_forward", TTR("Freelook Forward"), Key::W);
+	register_shortcut_action("spatial_editor/freelook_backwards", TTR("Freelook Backwards"), Key::S);
+	register_shortcut_action("spatial_editor/freelook_up", TTR("Freelook Up"), Key::E);
+	register_shortcut_action("spatial_editor/freelook_down", TTR("Freelook Down"), Key::Q);
 	register_shortcut_action("spatial_editor/freelook_speed_modifier", TTR("Freelook Speed Modifier"), Key::SHIFT);
 	register_shortcut_action("spatial_editor/freelook_slow_modifier", TTR("Freelook Slow Modifier"), Key::ALT);
 
@@ -5196,6 +5250,7 @@ Node3DEditorViewport::Node3DEditorViewport(Node3DEditor *p_spatial_editor, int p
 
 	accept = nullptr;
 
+	crocotile_spacebar = false;						
 	freelook_active = false;
 	freelook_speed = EDITOR_GET("editors/3d/freelook/freelook_base_speed");
 
@@ -7922,9 +7977,7 @@ void Node3DEditor::_load_default_preview_settings() {
 	environ_sky_color->set_pick_color(Color(0.385, 0.454, 0.55));
 	environ_ground_color->set_pick_color(Color(0.2, 0.169, 0.133));
 	environ_energy->set_value(1.0);
-	if (OS::get_singleton()->get_current_rendering_method() != "gl_compatibility") {
-		environ_glow_button->set_pressed(true);
-	}
+	environ_glow_button->set_pressed(true);
 	environ_tonemap_button->set_pressed(true);
 	environ_ao_button->set_pressed(false);
 	environ_gi_button->set_pressed(false);
