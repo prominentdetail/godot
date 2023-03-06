@@ -228,6 +228,8 @@ private:
 	bool lock_rotation;
 	real_t gizmo_scale;
 
+	bool crocotile_spacebar;
+	
 	bool freelook_active;
 	real_t freelook_speed;
 	Vector2 previous_mouse_position;
@@ -290,7 +292,6 @@ private:
 	ObjectID clicked;
 	ObjectID material_target;
 	Vector<_RayResult> selection_results;
-	Vector<_RayResult> selection_results_menu;
 	bool clicked_wants_append = false;
 	bool selection_in_progress = false;
 
@@ -370,6 +371,8 @@ private:
 	void reset_fov();
 	void scale_cursor_distance(real_t scale);
 
+	void set_crocotile_spacebar(bool active_now);
+	
 	void set_freelook_active(bool active_now);
 	void scale_freelook_speed(real_t scale);
 
@@ -441,7 +444,7 @@ private:
 	void update_transform(Point2 p_mousepos, bool p_shift);
 	void finish_transform();
 
-	void register_shortcut_action(const String &p_path, const String &p_name, Key p_keycode, bool p_physical = false);
+	void register_shortcut_action(const String &p_path, const String &p_name, Key p_keycode);
 	void shortcut_changed_callback(const Ref<Shortcut> p_shortcut, const String &p_shortcut_path);
 
 protected:
@@ -456,6 +459,7 @@ public:
 	void set_state(const Dictionary &p_state);
 	Dictionary get_state() const;
 	void reset();
+	bool is_crocotile_spacebar() const { return crocotile_spacebar; }
 	bool is_freelook_active() const { return freelook_active; }
 
 	void focus_selection();
