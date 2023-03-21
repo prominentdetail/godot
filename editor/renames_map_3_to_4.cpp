@@ -1082,6 +1082,7 @@ const char *RenamesMap3To4::gdscript_properties_renames[][2] = {
 	{ "files_disabled", "file_disabled_color" }, // Theme
 	{ "folder_icon_modulate", "folder_icon_color" }, // Theme
 	{ "global_rate_scale", "playback_speed_scale" }, // AudioServer
+	{ "global_translation", "global_position" }, // Node3D
 	{ "gravity_distance_scale", "gravity_point_unit_distance" }, // Area(2D/3D)
 	{ "gravity_vec", "gravity_direction" }, // Area(2D/3D)
 	{ "hint_tooltip", "tooltip_text" }, // Control
@@ -1095,6 +1096,7 @@ const char *RenamesMap3To4::gdscript_properties_renames[][2] = {
 	{ "margin_top", "offset_top" }, // Control -- Breaks NinePatchRect, StyleBox.
 	{ "mid_height", "height" }, // CapsuleMesh
 	{ "neighbor_dist", "neighbor_distance" }, // NavigationAgent2D, NavigationAgent3D
+	{ "octaves", "fractal_octaves" }, // OpenSimplexNoise -> FastNoiseLite
 	{ "offset_h", "drag_horizontal_offset" }, // Camera2D
 	{ "offset_v", "drag_vertical_offset" }, // Camera2D
 	{ "off_disabled", "unchecked_disabled" }, // Theme
@@ -1132,6 +1134,7 @@ const char *RenamesMap3To4::gdscript_properties_renames[][2] = {
 	{ "tab_align", "tab_alignment" }, // TabContainer
 	{ "table_hseparation", "table_h_separation" }, // Theme
 	{ "table_vseparation", "table_v_separation" }, // Theme
+	{ "tangent", "orthogonal" }, // Vector2
 	{ "toplevel", "top_level" }, // Node
 	{ "translation", "position" }, // Node3D
 	{ "unit_db", "volume_db" }, // AudioStreamPlayer3D
@@ -1188,6 +1191,7 @@ const char *RenamesMap3To4::csharp_properties_renames[][2] = {
 	{ "MarginTop", "OffsetTop" }, // Control -- Breaks NinePatchRect, StyleBox.
 	{ "MidHeight", "Height" }, // CapsuleMesh
 	{ "NeighborDist", "NeighborDistance" }, // NavigationAgent2D, NavigationAgent3D
+	{ "Octaves", "FractalOctaves" }, // OpenSimplexNoise -> FastNoiseLite
 	{ "OffsetH", "DragHorizontalOffset" }, // Camera2D
 	{ "OffsetV", "DragVerticalOffset" }, // Camera2D
 	{ "OffDisabled", "UncheckedDisabled" }, // Theme
@@ -1195,6 +1199,7 @@ const char *RenamesMap3To4::csharp_properties_renames[][2] = {
 	{ "Oneshot", "OneShot" }, // AnimatedTexture
 	{ "OutOfRangeMode", "MaxPolyphony" }, // AudioStreamPlayer3D
 	{ "PauseMode", "ProcessMode" }, // Node
+	{ "Perpendicular", "Orthogonal" }, // Vector2 - Only exists in C#
 	{ "PhysicalScancode", "PhysicalKeycode" }, // InputEventKey
 	{ "PopupExclusive", "Exclusive" }, // Window
 	{ "ProximityFadeEnable", "ProximityFadeEnabled" }, // Material
@@ -1225,6 +1230,7 @@ const char *RenamesMap3To4::csharp_properties_renames[][2] = {
 	{ "TabAlign", "TabAlignment" }, // TabContainer
 	{ "TableHseparation", "TableHSeparation" }, // Theme
 	{ "TableVseparation", "TableVSeparation" }, // Theme
+	{ "Tangent", "Orthogonal" }, // Vector2
 	{ "Toplevel", "TopLevel" }, // Node
 	{ "Translation", "Position" }, // Node3D
 	{ "UnitDb", "VolumeDb" }, // AudioStreamPlayer3D
@@ -1476,6 +1482,7 @@ const char *RenamesMap3To4::class_renames[][2] = {
 	{ "CubeMesh", "BoxMesh" },
 	{ "CylinderShape", "CylinderShape3D" },
 	{ "DirectionalLight", "DirectionalLight3D" },
+	{ "Directory", "DirAccess" },
 	{ "DynamicFont", "FontFile" },
 	{ "DynamicFontData", "FontFile" },
 	{ "EditorNavigationMeshGenerator", "NavigationMeshGenerator" },
@@ -1518,10 +1525,12 @@ const char *RenamesMap3To4::class_renames[][2] = {
 	{ "NavigationPolygonInstance", "NavigationRegion2D" },
 	{ "NavigationRegion", "NavigationRegion3D" },
 	{ "NavigationServer", "NavigationServer3D" },
+	{ "NetworkedMultiplayerCustom", "MultiplayerPeerExtension" },
 	{ "NetworkedMultiplayerENet", "ENetMultiplayerPeer" },
 	{ "NetworkedMultiplayerPeer", "MultiplayerPeer" },
 	{ "Occluder", "OccluderInstance3D" },
 	{ "OmniLight", "OmniLight3D" },
+	{ "OpenSimplexNoise", "FastNoiseLite" },
 	{ "PHashTranslation", "OptimizedTranslation" },
 	{ "PacketPeerGDNative", "PacketPeerExtension" },
 	{ "PanoramaSky", "Sky" },
@@ -1778,6 +1787,51 @@ const char *RenamesMap3To4::color_renames[][2] = {
 	{ "whitesmoke", "WHITE_SMOKE" },
 	{ "yellow", "YELLOW" },
 	{ "yellowgreen", "YELLOW_GREEN" },
+
+	{ nullptr, nullptr },
+};
+
+const char *RenamesMap3To4::theme_override_renames[][2] = {
+	// First rename the generic prefixes.
+	{ "custom_colors/", "theme_override_colors/" },
+	{ "custom_constants/", "theme_override_constants/" },
+	{ "custom_fonts/", "theme_override_fonts/" },
+	{ "custom_icons/", "theme_override_icons/" },
+	{ "custom_styles/", "theme_override_styles/" },
+
+	// MarginContainer
+	// The margin_* properties are renamed to offset_* in a previous conversion step.
+	// This is fine everywhere except for the MarginContainer theme_override_constants.
+	{ "theme_override_constants/offset_right", "theme_override_constants/margin_right" },
+	{ "theme_override_constants/offset_top", "theme_override_constants/margin_top" },
+	{ "theme_override_constants/offset_left", "theme_override_constants/margin_left" },
+	{ "theme_override_constants/offset_bottom", "theme_override_constants/margin_bottom" },
+
+	// Panel/PanelContainer/TabContainer/PopupPanel/PopupMenu
+	{ "theme_override_styles/panel", "theme_override_styles/panel" },
+
+	// TabContainer/Tabs(TabBar)
+	{ "theme_override_styles/tab_bg", "theme_override_styles/tab_unselected" },
+	{ "theme_override_styles/tab_fg", "theme_override_styles/tab_selected" },
+
+	// { "theme_override_styles/bg", "theme_override_styles/bg" }, // GraphEdit
+	// { "theme_override_styles/bg", "theme_override_styles/panel" }, // ScrollContainer
+	// { "theme_override_styles/bg", "theme_override_styles/background" }, // ProgressBar
+	// { "theme_override_styles/fg", "theme_override_styles/fill" }, // ProgressBar
+
+	{ "theme_override_colors/font_color_hover", "theme_override_colors/font_hover_color" },
+	{ "theme_override_colors/font_color_pressed", "theme_override_colors/font_pressed_color" },
+	{ "theme_override_colors/font_color_disabled", "theme_override_colors/font_disabled_color" },
+	{ "theme_override_colors/font_color_focus", "theme_override_colors/font_focus_color" },
+	{ "theme_override_colors/font_color_hover_pressed", "theme_override_colors/font_hover_pressed_color" },
+
+	{ "theme_override_colors/font_outline_modulate", "theme_override_colors/font_outline_color" },
+	{ "theme_override_colors/font_color_shadow", "theme_override_colors/font_shadow_color" },
+
+	{ "theme_override_constants/shadow_as_outline", "theme_override_constants/shadow_outline_size" }, // 0 or 1
+
+	{ "theme_override_constants/table_vseparation", "theme_override_constants/table_v_separation" },
+	{ "theme_override_constants/table_hseparation", "theme_override_constants/table_h_separation" },
 
 	{ nullptr, nullptr },
 };
