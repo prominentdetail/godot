@@ -118,7 +118,7 @@ private:
 	Ref<Material> material;
 
 	mutable Transform2D global_transform;
-	mutable bool global_invalid = true;
+	mutable SafeFlag global_invalid;
 
 	void _top_level_raise_self();
 
@@ -129,6 +129,7 @@ private:
 	virtual void _top_level_changed_on_parent();
 
 	void _redraw_callback();
+	void _invalidate_global_transform();
 
 	void _enter_canvas();
 	void _exit_canvas();
@@ -143,6 +144,8 @@ private:
 	void _update_texture_repeat_changed(bool p_propagate);
 	void _refresh_texture_filter_cache();
 	void _update_texture_filter_changed(bool p_propagate);
+
+	void _notify_transform_deferred();
 
 protected:
 	_FORCE_INLINE_ void _notify_transform() {
