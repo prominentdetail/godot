@@ -321,6 +321,7 @@ void TileMapEditorTilesPlugin::_update_patterns_list() {
 	for (int i = 0; i < tile_set->get_patterns_count(); i++) {
 		int id = patterns_item_list->add_item("");
 		patterns_item_list->set_item_metadata(id, tile_set->get_pattern(i));
+		patterns_item_list->set_item_tooltip(id, vformat(TTR("Index: %d"), i));
 		TilesEditorPlugin::get_singleton()->queue_pattern_preview(tile_set, tile_set->get_pattern(i), callable_mp(this, &TileMapEditorTilesPlugin::_pattern_preview_done));
 	}
 
@@ -2186,7 +2187,7 @@ TileMapEditorTilesPlugin::TileMapEditorTilesPlugin() {
 	tiles_bottom_panel->set_name(TTR("Tiles"));
 
 	missing_source_label = memnew(Label);
-	missing_source_label->set_text(TTR("This TileMap's TileSet has no source configured. Edit the TileSet resource to add one."));
+	missing_source_label->set_text(TTR("This TileMap's TileSet has no source configured. Go to the TileSet bottom tab to add one."));
 	missing_source_label->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	missing_source_label->set_v_size_flags(Control::SIZE_EXPAND_FILL);
 	missing_source_label->set_horizontal_alignment(HORIZONTAL_ALIGNMENT_CENTER);
@@ -4068,7 +4069,7 @@ TileMapEditor::TileMapEditor() {
 	tile_map_toolbar->add_child(advanced_menu_button);
 
 	missing_tileset_label = memnew(Label);
-	missing_tileset_label->set_text(TTR("The edited TileMap node has no TileSet resource."));
+	missing_tileset_label->set_text(TTR("The edited TileMap node has no TileSet resource.\nCreate or load a TileSet resource in the Tile Set property in the inspector."));
 	missing_tileset_label->set_h_size_flags(SIZE_EXPAND_FILL);
 	missing_tileset_label->set_v_size_flags(SIZE_EXPAND_FILL);
 	missing_tileset_label->set_horizontal_alignment(HORIZONTAL_ALIGNMENT_CENTER);

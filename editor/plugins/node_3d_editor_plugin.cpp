@@ -296,10 +296,10 @@ void ViewportRotationControl::_notification(int p_what) {
 			axis_menu_options.clear();
 			axis_menu_options.push_back(Node3DEditorViewport::VIEW_RIGHT);
 			axis_menu_options.push_back(Node3DEditorViewport::VIEW_TOP);
-			axis_menu_options.push_back(Node3DEditorViewport::VIEW_REAR);
+			axis_menu_options.push_back(Node3DEditorViewport::VIEW_FRONT);
 			axis_menu_options.push_back(Node3DEditorViewport::VIEW_LEFT);
 			axis_menu_options.push_back(Node3DEditorViewport::VIEW_BOTTOM);
-			axis_menu_options.push_back(Node3DEditorViewport::VIEW_FRONT);
+			axis_menu_options.push_back(Node3DEditorViewport::VIEW_REAR);
 
 			axis_colors.clear();
 			axis_colors.push_back(get_theme_color(SNAME("axis_x_color"), SNAME("Editor")));
@@ -370,7 +370,7 @@ void ViewportRotationControl::_get_sorted_axis(Vector<Axis2D> &r_axis) {
 		Vector3 axis_3d = camera_basis.get_column(i);
 		Vector2i axis_vector = Vector2(axis_3d.x, -axis_3d.y) * radius;
 
-		if (Math::abs(axis_3d.z) < 1.0) {
+		if (Math::abs(axis_3d.z) <= 1.0) {
 			Axis2D pos_axis;
 			pos_axis.axis = i;
 			pos_axis.screen_point = center + axis_vector;
@@ -385,7 +385,7 @@ void ViewportRotationControl::_get_sorted_axis(Vector<Axis2D> &r_axis) {
 		} else {
 			// Special case when the camera is aligned with one axis
 			Axis2D axis;
-			axis.axis = i + (axis_3d.z < 0 ? 0 : 3);
+			axis.axis = i + (axis_3d.z <= 0 ? 0 : 3);
 			axis.screen_point = center;
 			axis.z_axis = 1.0;
 			r_axis.push_back(axis);
@@ -2108,7 +2108,7 @@ void Node3DEditorViewport::_sinput(const Ref<InputEvent> &p_event) {
 
 		switch (nav_mode) {
 			case NAVIGATION_PAN: {
-				_nav_pan(pan_gesture, pan_gesture->get_delta());
+				_nav_pan(pan_gesture, -pan_gesture->get_delta());
 
 			} break;
 
@@ -2118,7 +2118,7 @@ void Node3DEditorViewport::_sinput(const Ref<InputEvent> &p_event) {
 			} break;
 
 			case NAVIGATION_ORBIT: {
-				_nav_orbit(pan_gesture, pan_gesture->get_delta());
+				_nav_orbit(pan_gesture, -pan_gesture->get_delta());
 
 			} break;
 
@@ -3232,7 +3232,7 @@ void Node3DEditorViewport::_menu_option(int p_option) {
 		} break;
 		case VIEW_FRONT: {
 			cursor.x_rot = 0;
-			cursor.y_rot = Math_PI;
+			cursor.y_rot = 0;
 			set_message(TTR("Front View."), 2);
 			view_type = VIEW_TYPE_FRONT;
 			_set_auto_orthogonal();
@@ -3241,7 +3241,7 @@ void Node3DEditorViewport::_menu_option(int p_option) {
 		} break;
 		case VIEW_REAR: {
 			cursor.x_rot = 0;
-			cursor.y_rot = 0;
+			cursor.y_rot = Math_PI;
 			set_message(TTR("Rear View."), 2);
 			view_type = VIEW_TYPE_REAR;
 			_set_auto_orthogonal();
@@ -3385,13 +3385,7 @@ void Node3DEditorViewport::_menu_option(int p_option) {
 		case VIEW_LOCK_ROTATION: {
 			int idx = view_menu->get_popup()->get_item_index(VIEW_LOCK_ROTATION);
 			bool current = view_menu->get_popup()->is_item_checked(idx);
-			lock_rotation = !current;
-			view_menu->get_popup()->set_item_checked(idx, !current);
-			if (lock_rotation) {
-				locked_label->show();
-			} else {
-				locked_label->hide();
-			}
+			_set_lock_view_rotation(!current);
 
 		} break;
 		case VIEW_AUDIO_LISTENER: {
@@ -3868,10 +3862,7 @@ void Node3DEditorViewport::set_state(const Dictionary &p_state) {
 		}
 	}
 	if (p_state.has("lock_rotation")) {
-		lock_rotation = p_state["lock_rotation"];
-
-		int idx = view_menu->get_popup()->get_item_index(VIEW_LOCK_ROTATION);
-		view_menu->get_popup()->set_item_checked(idx, lock_rotation);
+		_set_lock_view_rotation(p_state["lock_rotation"]);
 	}
 	if (p_state.has("use_environment")) {
 		bool env = p_state["use_environment"];
@@ -3987,9 +3978,7 @@ Dictionary Node3DEditorViewport::get_state() const {
 	if (previewing) {
 		d["previewing"] = EditorNode::get_singleton()->get_edited_scene()->get_path_to(previewing);
 	}
-	if (lock_rotation) {
-		d["lock_rotation"] = lock_rotation;
-	}
+	d["lock_rotation"] = lock_rotation;
 
 	return d;
 }
@@ -4987,6 +4976,17 @@ void Node3DEditorViewport::shortcut_changed_callback(const Ref<Shortcut> p_short
 
 	for (int i = 0; i < p_shortcut->get_events().size(); i++) {
 		im->action_add_event(p_shortcut_path, p_shortcut->get_events()[i]);
+	}
+}
+
+void Node3DEditorViewport::_set_lock_view_rotation(bool p_lock_rotation) {
+	lock_rotation = p_lock_rotation;
+	int idx = view_menu->get_popup()->get_item_index(VIEW_LOCK_ROTATION);
+	view_menu->get_popup()->set_item_checked(idx, p_lock_rotation);
+	if (p_lock_rotation) {
+		locked_label->show();
+	} else {
+		locked_label->hide();
 	}
 }
 
