@@ -30,12 +30,13 @@
 
 #include "nav_map.h"
 
-#include "core/config/project_settings.h"
-#include "core/object/worker_thread_pool.h"
 #include "nav_agent.h"
 #include "nav_link.h"
 #include "nav_obstacle.h"
 #include "nav_region.h"
+
+#include "core/config/project_settings.h"
+#include "core/object/worker_thread_pool.h"
 
 #include <Obstacle2d.h>
 
@@ -69,6 +70,14 @@ void NavMap::set_cell_size(real_t p_cell_size) {
 	regenerate_polygons = true;
 }
 
+void NavMap::set_cell_height(real_t p_cell_height) {
+	if (cell_height == p_cell_height) {
+		return;
+	}
+	cell_height = p_cell_height;
+	regenerate_polygons = true;
+}
+
 void NavMap::set_use_edge_connections(bool p_enabled) {
 	if (use_edge_connections == p_enabled) {
 		return;
@@ -94,9 +103,9 @@ void NavMap::set_link_connection_radius(real_t p_link_connection_radius) {
 }
 
 gd::PointKey NavMap::get_point_key(const Vector3 &p_pos) const {
-	const int x = int(Math::floor(p_pos.x / cell_size));
-	const int y = int(Math::floor(p_pos.y / cell_size));
-	const int z = int(Math::floor(p_pos.z / cell_size));
+	const int x = static_cast<int>(Math::floor(p_pos.x / cell_size));
+	const int y = static_cast<int>(Math::floor(p_pos.y / cell_height));
+	const int z = static_cast<int>(Math::floor(p_pos.z / cell_size));
 
 	gd::PointKey p;
 	p.key = 0;
@@ -619,6 +628,11 @@ bool NavMap::has_obstacle(NavObstacle *obstacle) const {
 }
 
 void NavMap::add_obstacle(NavObstacle *obstacle) {
+	if (obstacle->get_paused()) {
+		// No point in adding a paused obstacle, it will add itself when unpaused again.
+		return;
+	}
+
 	if (!has_obstacle(obstacle)) {
 		obstacles.push_back(obstacle);
 		obstacles_dirty = true;
@@ -635,6 +649,12 @@ void NavMap::remove_obstacle(NavObstacle *obstacle) {
 
 void NavMap::set_agent_as_controlled(NavAgent *agent) {
 	remove_agent_as_controlled(agent);
+
+	if (agent->get_paused()) {
+		// No point in adding a paused agent, it will add itself when unpaused again.
+		return;
+	}
+
 	if (agent->get_use_3d_avoidance()) {
 		int64_t agent_3d_index = active_3d_avoidance_agents.find(agent);
 		if (agent_3d_index < 0) {

@@ -1615,6 +1615,15 @@ void DisplayServerWindows::window_move_to_foreground(WindowID p_window) {
 	}
 }
 
+bool DisplayServerWindows::window_is_focused(WindowID p_window) const {
+	_THREAD_SAFE_METHOD_
+
+	ERR_FAIL_COND_V(!windows.has(p_window), false);
+	const WindowData &wd = windows[p_window];
+
+	return wd.window_focused;
+}
+
 bool DisplayServerWindows::window_can_draw(WindowID p_window) const {
 	_THREAD_SAFE_METHOD_
 
@@ -1898,11 +1907,11 @@ void DisplayServerWindows::cursor_set_custom_image(const Ref<Resource> &p_cursor
 		}
 		cursors[p_shape] = nullptr;
 
+		cursors_cache.erase(p_shape);
+
 		CursorShape c = cursor_shape;
 		cursor_shape = CURSOR_MAX;
 		cursor_set_shape(c);
-
-		cursors_cache.erase(p_shape);
 	}
 }
 
@@ -3324,7 +3333,7 @@ LRESULT DisplayServerWindows::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
 						SetCapture(hWnd);
 					}
 				} else {
-					if (--pressrc <= 0) {
+					if (--pressrc <= 0 || last_button_state.is_empty()) {
 						if (mouse_mode != MOUSE_MODE_CAPTURED) {
 							ReleaseCapture();
 						}

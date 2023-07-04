@@ -30,7 +30,23 @@
 
 #include "csharp_script.h"
 
-#include <stdint.h>
+#include "godotsharp_dirs.h"
+#include "managed_callable.h"
+#include "mono_gd/gd_mono_cache.h"
+#include "signal_awaiter_utils.h"
+#include "utils/macros.h"
+#include "utils/naming_utils.h"
+#include "utils/path_utils.h"
+#include "utils/string_utils.h"
+
+#ifdef DEBUG_METHODS_ENABLED
+#include "class_db_api_json.h"
+#endif
+
+#ifdef TOOLS_ENABLED
+#include "editor/editor_internal_calls.h"
+#include "editor/script_templates/templates.gen.h"
+#endif
 
 #include "core/config/project_settings.h"
 #include "core/debugger/engine_debugger.h"
@@ -39,30 +55,18 @@
 #include "core/os/mutex.h"
 #include "core/os/os.h"
 #include "core/os/thread.h"
+#include "servers/text_server.h"
 
 #ifdef TOOLS_ENABLED
 #include "core/os/keyboard.h"
 #include "editor/editor_file_system.h"
-#include "editor/editor_internal_calls.h"
 #include "editor/editor_node.h"
 #include "editor/editor_settings.h"
 #include "editor/inspector_dock.h"
 #include "editor/node_dock.h"
-#include "editor/script_templates/templates.gen.h"
 #endif
 
-#ifdef DEBUG_METHODS_ENABLED
-#include "class_db_api_json.h"
-#endif
-
-#include "godotsharp_dirs.h"
-#include "managed_callable.h"
-#include "mono_gd/gd_mono_cache.h"
-#include "servers/text_server.h"
-#include "signal_awaiter_utils.h"
-#include "utils/macros.h"
-#include "utils/naming_utils.h"
-#include "utils/string_utils.h"
+#include <stdint.h>
 
 #define CACHED_STRING_NAME(m_var) (CSharpLanguage::get_singleton()->get_string_names().m_var)
 
@@ -116,6 +120,7 @@ void CSharpLanguage::init() {
 	GLOBAL_DEF("dotnet/project/assembly_name", "");
 #ifdef TOOLS_ENABLED
 	GLOBAL_DEF("dotnet/project/solution_directory", "");
+	GLOBAL_DEF(PropertyInfo(Variant::INT, "dotnet/project/assembly_reload_attempts", PROPERTY_HINT_RANGE, "1,16,1,or_greater"), 3);
 #endif
 
 	gdmono = memnew(GDMono);
@@ -740,11 +745,7 @@ bool CSharpLanguage::is_assembly_reloading_needed() {
 			return false; // Already up to date
 		}
 	} else {
-		String assembly_name = GLOBAL_GET("dotnet/project/assembly_name");
-
-		if (assembly_name.is_empty()) {
-			assembly_name = ProjectSettings::get_singleton()->get_safe_project_name();
-		}
+		String assembly_name = path::get_csharp_project_name();
 
 		assembly_path = GodotSharpDirs::get_res_temp_assemblies_dir()
 								.path_join(assembly_name + ".dll");
@@ -770,10 +771,6 @@ void CSharpLanguage::reload_assemblies(bool p_soft_reload) {
 		return;
 	}
 
-	// TODO:
-	//  Currently, this reloads all scripts, including those whose class is not part of the
-	//  assembly load context being unloaded. As such, we unnecessarily reload GodotTools.
-
 	print_verbose(".NET: Reloading assemblies...");
 
 	// There is no soft reloading with Mono. It's always hard reloading.
@@ -784,8 +781,20 @@ void CSharpLanguage::reload_assemblies(bool p_soft_reload) {
 		MutexLock lock(script_instances_mutex);
 
 		for (SelfList<CSharpScript> *elem = script_list.first(); elem; elem = elem->next()) {
-			// Cast to CSharpScript to avoid being erased by accident
-			scripts.push_back(Ref<CSharpScript>(elem->self()));
+			// Do not reload scripts with only non-collectible instances to avoid disrupting event subscriptions and such.
+			bool is_reloadable = elem->self()->instances.size() == 0;
+			for (Object *obj : elem->self()->instances) {
+				ERR_CONTINUE(!obj->get_script_instance());
+				CSharpInstance *csi = static_cast<CSharpInstance *>(obj->get_script_instance());
+				if (GDMonoCache::managed_callbacks.GCHandleBridge_GCHandleIsTargetCollectible(csi->get_gchandle_intptr())) {
+					is_reloadable = true;
+					break;
+				}
+			}
+			if (is_reloadable) {
+				// Cast to CSharpScript to avoid being erased by accident.
+				scripts.push_back(Ref<CSharpScript>(elem->self()));
+			}
 		}
 	}
 
@@ -799,6 +808,10 @@ void CSharpLanguage::reload_assemblies(bool p_soft_reload) {
 			ManagedCallable *managed_callable = elem->self();
 
 			ERR_CONTINUE(managed_callable->delegate_handle.value == nullptr);
+
+			if (!GDMonoCache::managed_callbacks.GCHandleBridge_GCHandleIsTargetCollectible(managed_callable->delegate_handle)) {
+				continue;
+			}
 
 			Array serialized_data;
 
@@ -905,6 +918,15 @@ void CSharpLanguage::reload_assemblies(bool p_soft_reload) {
 
 		scr->was_tool_before_reload = scr->tool;
 		scr->_clear();
+	}
+
+	// Release the delegates that were serialized earlier.
+	{
+		MutexLock lock(ManagedCallable::instances_mutex);
+
+		for (KeyValue<ManagedCallable *, Array> &kv : ManagedCallable::instances_pending_reload) {
+			kv.key->release_delegate_handle();
+		}
 	}
 
 	// Do domain reload
@@ -1156,19 +1178,6 @@ bool CSharpLanguage::debug_break(const String &p_error, bool p_allow_continue) {
 	} else {
 		return false;
 	}
-}
-
-void CSharpLanguage::_on_scripts_domain_about_to_unload() {
-#ifdef GD_MONO_HOT_RELOAD
-	{
-		MutexLock lock(ManagedCallable::instances_mutex);
-
-		for (SelfList<ManagedCallable> *elem = ManagedCallable::instances.first(); elem; elem = elem->next()) {
-			ManagedCallable *managed_callable = elem->self();
-			managed_callable->release_delegate_handle();
-		}
-	}
-#endif
 }
 
 #ifdef TOOLS_ENABLED
@@ -2320,6 +2329,9 @@ void CSharpScript::update_script_class_info(Ref<CSharpScript> p_script) {
 			Variant::Type param_type = (Variant::Type)(int)param["type"];
 			PropertyInfo arg_info = PropertyInfo(param_type, (String)param["name"]);
 			arg_info.usage = (uint32_t)param["usage"];
+			if (param.has("class_name")) {
+				arg_info.class_name = (StringName)param["class_name"];
+			}
 			mi.arguments.push_back(arg_info);
 		}
 
@@ -2350,6 +2362,9 @@ void CSharpScript::update_script_class_info(Ref<CSharpScript> p_script) {
 			Variant::Type param_type = (Variant::Type)(int)param["type"];
 			PropertyInfo arg_info = PropertyInfo(param_type, (String)param["name"]);
 			arg_info.usage = (uint32_t)param["usage"];
+			if (param.has("class_name")) {
+				arg_info.class_name = (StringName)param["class_name"];
+			}
 			mi.arguments.push_back(arg_info);
 		}
 
