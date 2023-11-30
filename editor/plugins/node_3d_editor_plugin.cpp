@@ -2546,6 +2546,7 @@ void Node3DEditorViewport::set_crocotile_spacebar(bool active_now) {
 	crocotile_spacebar = active_now;
 }
 void Node3DEditorViewport::set_freelook_active(bool active_now) {
+	if(crocotile_spacebar) return;										
 	if (!freelook_active && active_now) {
 		// Sync camera cursor to cursor to "cut" interpolation jumps due to changing referential
 		cursor = camera_cursor;

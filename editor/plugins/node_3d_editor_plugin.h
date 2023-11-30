@@ -300,6 +300,7 @@ private:
 	ObjectID clicked;
 	ObjectID material_target;
 	Vector<_RayResult> selection_results;
+	Vector<_RayResult> selection_results_menu;
 	bool clicked_wants_append = false;
 	bool selection_in_progress = false;
 
@@ -389,7 +390,6 @@ private:
 	void scale_cursor_distance(real_t scale);
 
 	void set_crocotile_spacebar(bool active_now);
-	
 	void set_freelook_active(bool active_now);
 	void scale_freelook_speed(real_t scale);
 
@@ -464,7 +464,7 @@ private:
 	void update_transform_numeric();
 	void finish_transform();
 
-	void register_shortcut_action(const String &p_path, const String &p_name, Key p_keycode);
+	void register_shortcut_action(const String &p_path, const String &p_name, Key p_keycode, bool p_physical = false);
 	void shortcut_changed_callback(const Ref<Shortcut> p_shortcut, const String &p_shortcut_path);
 
 	void _set_lock_view_rotation(bool p_lock_rotation);
