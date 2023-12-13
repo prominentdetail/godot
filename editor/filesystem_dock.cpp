@@ -47,7 +47,7 @@
 #include "editor/editor_string_names.h"
 #include "editor/gui/editor_dir_dialog.h"
 #include "editor/gui/editor_scene_tabs.h"
-#include "editor/import/resource_importer_scene.h"
+#include "editor/import/scene_import_settings.h"
 #include "editor/import_dock.h"
 #include "editor/plugins/editor_resource_tooltip_plugins.h"
 #include "editor/scene_create_dialog.h"
@@ -1192,12 +1192,12 @@ void FileSystemDock::_select_file(const String &p_path, bool p_select_in_favorit
 
 		String resource_type = ResourceLoader::get_resource_type(fpath);
 
-		if (resource_type == "PackedScene") {
+		if (resource_type == "PackedScene" || resource_type == "AnimationLibrary") {
 			bool is_imported = false;
 
 			{
 				List<String> importer_exts;
-				ResourceImporterScene::get_scene_singleton()->get_recognized_extensions(&importer_exts);
+				ResourceImporterScene::get_scene_importer_extensions(&importer_exts);
 				String extension = fpath.get_extension();
 				for (const String &E : importer_exts) {
 					if (extension.nocasecmp_to(E) == 0) {
@@ -1208,27 +1208,7 @@ void FileSystemDock::_select_file(const String &p_path, bool p_select_in_favorit
 			}
 
 			if (is_imported) {
-				ResourceImporterScene::get_scene_singleton()->show_advanced_options(fpath);
-			} else {
-				EditorNode::get_singleton()->open_request(fpath);
-			}
-		} else if (resource_type == "AnimationLibrary") {
-			bool is_imported = false;
-
-			{
-				List<String> importer_exts;
-				ResourceImporterScene::get_animation_singleton()->get_recognized_extensions(&importer_exts);
-				String extension = fpath.get_extension();
-				for (const String &E : importer_exts) {
-					if (extension.nocasecmp_to(E) == 0) {
-						is_imported = true;
-						break;
-					}
-				}
-			}
-
-			if (is_imported) {
-				ResourceImporterScene::get_animation_singleton()->show_advanced_options(fpath);
+				SceneImportSettingsDialog::get_singleton()->open_settings(p_path, resource_type == "AnimationLibrary");
 			} else {
 				EditorNode::get_singleton()->open_request(fpath);
 			}
@@ -1595,6 +1575,9 @@ void FileSystemDock::_update_dependencies_after_move(const HashMap<String, Strin
 	// The following code assumes that the following holds:
 	// 1) EditorFileSystem contains the old paths/folder structure from before the rename/move.
 	// 2) ResourceLoader can use the new paths without needing to call rescan.
+
+	// The currently edited scene should be reloaded first, so get it's path (GH-82652).
+	const String &edited_scene_path = EditorNode::get_editor_data().get_scene_path(EditorNode::get_editor_data().get_edited_scene());
 	List<String> scenes_to_reload;
 	for (const String &E : p_file_owners) {
 		// Because we haven't called a rescan yet the found remap might still be an old path itself.
@@ -1604,7 +1587,11 @@ void FileSystemDock::_update_dependencies_after_move(const HashMap<String, Strin
 		const Error err = ResourceLoader::rename_dependencies(file, p_renames);
 		if (err == OK) {
 			if (ResourceLoader::get_resource_type(file) == "PackedScene") {
-				scenes_to_reload.push_back(file);
+				if (file == edited_scene_path) {
+					scenes_to_reload.push_front(file);
+				} else {
+					scenes_to_reload.push_back(file);
+				}
 			}
 		} else {
 			EditorNode::get_singleton()->add_io_error(TTR("Unable to update dependencies for:") + "\n" + E + "\n");
