@@ -236,6 +236,8 @@ private:
 	bool lock_rotation;
 	real_t gizmo_scale;
 
+	bool crocotile_spacebar;
+	
 	bool freelook_active;
 	real_t freelook_speed;
 	Vector2 previous_mouse_position;
@@ -387,6 +389,7 @@ private:
 	void reset_fov();
 	void scale_cursor_distance(real_t scale);
 
+	void set_crocotile_spacebar(bool active_now);
 	void set_freelook_active(bool active_now);
 	void scale_freelook_speed(real_t scale);
 
@@ -478,6 +481,7 @@ public:
 	void set_state(const Dictionary &p_state);
 	Dictionary get_state() const;
 	void reset();
+	bool is_crocotile_spacebar() const { return crocotile_spacebar; }
 	bool is_freelook_active() const { return freelook_active; }
 
 	void focus_selection();
